@@ -47,11 +47,12 @@ clawhub install tech-news-digest
 ```
        run-pipeline.py (~30秒)
               ↓
-  RSS ─┐
-  Twitter ─┤
-  Web ─────┤── 并行采集 ──→ merge-sources.py
-  GitHub ──┤
-  Reddit ──┘
+  RSS ─────────────┐
+  Twitter ─────────┤
+  Web ─────────────┤── 并行采集 ──→ merge-sources.py
+  GitHub ──────────┤
+  GitHub Trending ─┤
+  Reddit ──────────┘
               ↓
   质量评分 → 去重 → 主题分组
               ↓
@@ -68,7 +69,7 @@ clawhub install tech-news-digest
 
 ## 🎨 自定义数据源
 
-开箱即用，内置 168 个数据源——但完全可自定义。将默认配置复制到 workspace 并覆盖：
+开箱即用，内置 168 个数据源（78 RSS、48 Twitter、29 GitHub、13 Reddit），但完全可自定义。将默认配置复制到 workspace 并覆盖：
 
 ```bash
 # 复制并自定义

@@ -218,8 +218,11 @@ Examples:
         from config_loader import load_merged_sources, load_merged_topics
     
     # File paths
-    schema_path = Path("config/schema.json")
-    
+    script_dir = Path(__file__).resolve().parent
+    skill_dir = script_dir.parent
+    default_defaults_arg = Path("config/defaults")
+    schema_path = skill_dir / "config" / "schema.json"
+
     if args.config:
         logger.info(f"Validating merged configuration: defaults={args.defaults}, config={args.config}")
     else:
@@ -227,10 +230,13 @@ Examples:
     
     try:
         # Backward compatibility: if only --config provided, use old behavior
-        if args.config and args.defaults == Path("config/defaults") and not args.defaults.exists():
+        if args.config and args.defaults == default_defaults_arg and not args.defaults.exists():
             logger.debug("Backward compatibility mode: using --config as sole source")
             defaults_dir = args.config
             config_dir = None
+        elif args.defaults == default_defaults_arg and not args.defaults.exists():
+            defaults_dir = skill_dir / default_defaults_arg
+            config_dir = args.config
         else:
             defaults_dir = args.defaults
             config_dir = args.config

@@ -25,6 +25,7 @@ from urllib.parse import urljoin
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import threading
+from runtime_paths import runtime_file
 
 # Try to import feedparser, fall back to regex parsing
 try:
@@ -39,7 +40,7 @@ MAX_WORKERS = 10
 MAX_ARTICLES_PER_FEED = 20
 RETRY_COUNT = 1
 RETRY_DELAY = 2.0  # seconds
-RSS_CACHE_PATH = "/tmp/tech-news-digest-rss-cache.json"
+RSS_CACHE_PATH = str(runtime_file("tech-news-digest-rss-cache.json"))
 RSS_CACHE_TTL_HOURS = 24
 
 

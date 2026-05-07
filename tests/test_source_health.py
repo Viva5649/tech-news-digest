@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Tests for source-health.py."""
 
+import importlib.util
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-import importlib.util
 
 SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -51,7 +51,10 @@ class TestSourceHealthScript(unittest.TestCase):
                 self.assertEqual(summary["status"], "ok")
                 self.assertEqual(summary["tracked_sources"], 14)
                 self.assertEqual(summary["unhealthy_sources"], 0)
-                self.assertEqual({item["name"] for item in summary["inputs"]}, {"rss", "twitter", "github", "reddit", "web"})
+                self.assertEqual(
+                    {item["name"] for item in summary["inputs"]},
+                    {"rss", "twitter", "github", "reddit", "web"},
+                )
             finally:
                 source_health.HEALTH_FILE = old_health_file
 

@@ -14,12 +14,15 @@ Replace `<...>` placeholders before use. Daily defaults shown; weekly overrides 
 | `<EXTRA_SECTIONS>` | *(none)* | `📊 Weekly Trend Summary` |
 | `<ENRICH>` | `false` | `true` |
 | `<BLOG_PICKS_COUNT>` | `3` | `3-5` |
-| `<SUBJECT>` | `Daily Tech Digest - YYYY-MM-DD` | `Weekly Tech Digest - YYYY-MM-DD` |
+| `<EMAIL_SUBJECT>` | `YYYYMMDD_科技资讯日报` derived from `<DATE>` | `YYYYMMDD_科技资讯周报` derived from `<DATE>` |
 | `<WORKSPACE>` | Your workspace path | |
 | `<SKILL_DIR>` | Installed skill directory | |
 | `<DISCORD_CHANNEL_ID>` | Target channel ID | |
-| `<EMAIL>` | *(optional)* Recipient email | |
-| `<EMAIL_FROM>` | *(optional)* e.g. `MyBot <bot@example.com>` | |
+| `<EMAIL>` | `chenliang535649@163.com` | |
+| `<EMAIL_FROM>` | `mrnobody212377@163.com` | |
+| `<EMAIL_SMTP_SERVER>` | `smtp.163.com` | |
+| `<EMAIL_SMTP_PORT>` | `465` | |
+| `<SEND_EMAIL_SCRIPT>` | `/Users/viva/.agents/skills/send-email/scripts/send_email.py` | |
 | `<LANGUAGE>` | `Chinese` | |
 | `<TEMPLATE>` | `discord` / `email` / `markdown` | |
 | `<DATE>` | Today's date YYYY-MM-DD (caller provides) | |
@@ -35,9 +38,16 @@ Read config files (workspace overrides take priority over defaults):
 1. **Sources**: `<WORKSPACE>/config/tech-news-digest-sources.json` → fallback `<SKILL_DIR>/config/defaults/sources.json`
 2. **Topics**: `<WORKSPACE>/config/tech-news-digest-topics.json` → fallback `<SKILL_DIR>/config/defaults/topics.json`
 
+## Generated Output Location
+
+All generated files must stay inside this skill directory:
+- Reports: `<SKILL_DIR>/generated/archive/`
+- Runtime artifacts: `<SKILL_DIR>/generated/runtime/`
+- Shared reusable caches: keep them in `<SKILL_DIR>/generated/runtime/`
+
 ## Context: Previous Report
 
-Read the most recent file from `<WORKSPACE>/archive/tech-news-digest/` to avoid repeats and follow up on developing stories. Skip if none exists.
+Read the most recent file from `<SKILL_DIR>/generated/archive/` to avoid repeats and follow up on developing stories. Skip if none exists.
 
 ## Data Collection Pipeline
 
@@ -48,8 +58,8 @@ python3 <SKILL_DIR>/scripts/run-pipeline.py \
   --defaults <SKILL_DIR>/config/defaults \
   --config <WORKSPACE>/config \
   --hours <RSS_HOURS> --freshness <FRESHNESS> \
-  --archive-dir <WORKSPACE>/archive/tech-news-digest/ \
-  --output /tmp/td-merged.json --verbose --force \
+  --archive-dir <SKILL_DIR>/generated/archive \
+  --output <SKILL_DIR>/generated/runtime/<MODE>-<DATE>.merged.json --verbose --force \
   $([ "<ENRICH>" = "true" ] && echo "--enrich")
 ```
 
@@ -59,7 +69,7 @@ If it fails, run individual scripts in `<SKILL_DIR>/scripts/` (see each script's
 
 Get a structured overview:
 ```bash
-python3 <SKILL_DIR>/scripts/summarize-merged.py --input /tmp/td-merged.json --top <ITEMS_PER_SECTION>
+python3 <SKILL_DIR>/scripts/summarize-merged.py --input <SKILL_DIR>/generated/runtime/<MODE>-<DATE>.merged.json --top <ITEMS_PER_SECTION>
 ```
 
 Use this output to select articles — **do NOT write ad-hoc Python to parse the JSON**. Apply the template from `<SKILL_DIR>/references/templates/<TEMPLATE>.md`.
@@ -125,30 +135,40 @@ If `full_text` is available, write summary from full text; otherwise use title +
 ```
 
 ## Archive
-Save to `<WORKSPACE>/archive/tech-news-digest/<MODE>-YYYY-MM-DD.md`. Delete files older than 90 days.
+Save to `<SKILL_DIR>/generated/archive/<MODE>-<DATE>.md`.
+
+Retention rules:
+- Weekly reports: keep only the most recent 30 days
+- Delete expired weekly report files and their per-report artifacts
+- Keep shared reusable runtime content such as caches
+- Never delete outside `<SKILL_DIR>/generated/`
 
 ## Delivery
 
 1. **Discord**: Send to `<DISCORD_CHANNEL_ID>` via `message` tool
-   - If the report exceeds Discord's message limit, split it into numbered chunks (`1/N`, `2/N`, ...) before sending.
-   - Split on section boundaries (`## ...`) or paragraph breaks when possible; do not cut links, code fences, or list items mid-line.
-   - Keep each chunk comfortably below the platform limit (target ~1700 chars, never near 2000) to leave room for numbering/reply tags.
-   - Send only the current report being generated. Do not concatenate older reports, retries, or summaries into the same delivery batch.
-2. **Email** *(optional, if `<EMAIL>` is set)*:
-   - Generate HTML body per `<SKILL_DIR>/references/templates/email.md` → write to `/tmp/td-email.html`
-   - Generate PDF attachment:
+2. **Email notification**:
+   - After the final markdown report is saved to `<SKILL_DIR>/generated/archive/<MODE>-<DATE>.md`, send it with the `send-email` skill. Use the final markdown file as the message body with `--file`, not generated HTML or PDF.
+   - The subject must use `<EMAIL_SUBJECT>`. For daily reports use `YYYYMMDD_科技资讯日报`; for weekly reports use `YYYYMMDD_科技资讯周报`. Derive `YYYYMMDD` only from `<DATE>` by removing hyphens. Examples: daily `<DATE>` = `2025-12-31`, subject = `20251231_科技资讯日报`; weekly `<DATE>` = `2025-12-31`, subject = `20251231_科技资讯周报`.
+   - The sender auth code must come from `SMTP_SENDER_AUTH_CODE` or the execution environment. Do not write credentials into any repo file.
+   - Command template:
      ```bash
-     python3 <SKILL_DIR>/scripts/generate-pdf.py -i <WORKSPACE>/archive/tech-news-digest/<MODE>-<DATE>.md -o /tmp/td-digest.pdf
+     python3 <SEND_EMAIL_SCRIPT> \
+       --smtp-server <EMAIL_SMTP_SERVER> \
+       --smtp-port <EMAIL_SMTP_PORT> \
+       --use-ssl \
+       --sender-email <EMAIL_FROM> \
+       --to <EMAIL> \
+       --subject <EMAIL_SUBJECT> \
+       --file <SKILL_DIR>/generated/archive/<MODE>-<DATE>.md
      ```
-   - Send email with PDF attached using the `send-email.py` script (handles MIME correctly). **Email must contain ALL the same items as Discord.**
+   - Replace `<EMAIL_SUBJECT>` with the computed subject before running the command.
+   - If email delivery fails, output the error message and continue. Email failure must not block retention cleanup or the overall digest workflow.
+
+3. **Retention cleanup**:
+   - If `<MODE>` is `weekly`, run:
      ```bash
-     python3 <SKILL_DIR>/scripts/send-email.py \
-       --to '<EMAIL>' \
-       --subject '<SUBJECT>' \
-       --html /tmp/td-email.html \
-       --attach /tmp/td-digest.pdf \
-       --from '<EMAIL_FROM>'
+     python3 <SKILL_DIR>/scripts/prune-generated.py --mode weekly --days 30 --verbose
      ```
-   - Omit `--from` if `<EMAIL_FROM>` is not set. Omit `--attach` if PDF generation failed. SUBJECT must be a static string. If delivery fails, log error and continue.
+   - This cleanup must only touch expired `weekly-YYYY-MM-DD.*` outputs under `<SKILL_DIR>/generated/`
 
 Write the report in <LANGUAGE>.

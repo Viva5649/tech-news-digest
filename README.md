@@ -47,12 +47,12 @@ A quality-scored, deduplicated tech digest built from **168 built-in sources** p
 ```
        run-pipeline.py (~30s)
               ↓
-  RSS ────────┐
-  Twitter ────┤
-  Web ────────┤── parallel fetch ──→ merge-sources.py
-  GitHub ─────┤                          ↓
-  GitHub Tr. ─┤              enrich-articles.py (opt-in)
-  Reddit ─────┘                          ↓
+  RSS ─────────────┐
+  Twitter ─────────┤
+  Web ─────────────┤── parallel fetch ──→ merge-sources.py
+  GitHub ──────────┤                          ↓
+  GitHub Trending ─┤              enrich-articles.py (opt-in)
+  Reddit ──────────┘                          ↓
               Quality Scoring → Dedup → Topic Grouping
                              ↓
                Discord / Email / PDF output

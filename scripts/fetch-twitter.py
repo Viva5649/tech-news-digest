@@ -34,13 +34,14 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode, quote
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+from runtime_paths import runtime_file
 
 TIMEOUT = 30
 MAX_WORKERS = 5  # Lower for API rate limits
 RETRY_COUNT = 2
 RETRY_DELAY = 2.0
 MAX_TWEETS_PER_USER = 20
-ID_CACHE_PATH = "/tmp/tech-news-digest-twitter-id-cache.json"
+ID_CACHE_PATH = str(runtime_file("tech-news-digest-twitter-id-cache.json"))
 ID_CACHE_TTL_DAYS = 7
 
 # Twitter API v2 endpoints
@@ -850,7 +851,7 @@ Examples:
             "sources": [],
             "skipped_reason": f"No credentials for backend '{backend_name}'"
         }
-        output_path = args.output or Path("/tmp/td-twitter.json")
+        output_path = args.output or runtime_file("td-twitter.json")
         with open(output_path, "w") as f:
             json.dump(empty_result, f, indent=2)
         print(f"Output (empty): {output_path}")

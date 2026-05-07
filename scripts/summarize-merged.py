@@ -9,6 +9,7 @@ Usage:
 import json
 import argparse
 from pathlib import Path
+from runtime_paths import runtime_file
 
 
 def summarize(data: dict, top_n: int = 10, topic_filter: str = None):
@@ -83,7 +84,7 @@ def summarize(data: dict, top_n: int = 10, topic_filter: str = None):
 
 def main():
     parser = argparse.ArgumentParser(description="Summarize merged JSON for LLM consumption")
-    parser.add_argument("--input", "-i", type=Path, default=Path("/tmp/td-merged.json"))
+    parser.add_argument("--input", "-i", type=Path, default=runtime_file("td-merged.json"))
     parser.add_argument("--top", "-n", type=int, default=10, help="Top N articles per topic")
     parser.add_argument("--topic", "-t", type=str, default=None, help="Filter to specific topic")
     args = parser.parse_args()

@@ -2,6 +2,7 @@
 """Tests for config_loader.py."""
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -35,21 +36,20 @@ class TestLoadSources(unittest.TestCase):
 
     def test_all_sources_have_required_fields(self):
         sources = load_merged_sources(DEFAULTS_DIR)
-        for s in sources:
-            self.assertIn("id", s, f"Source missing id: {s}")
-            self.assertIn("type", s, f"Source missing type: {s}")
-            self.assertIn("enabled", s, f"Source missing enabled: {s}")
+        for source in sources:
+            self.assertIn("id", source, f"Source missing id: {source}")
+            self.assertIn("type", source, f"Source missing type: {source}")
+            self.assertIn("enabled", source, f"Source missing enabled: {source}")
 
     def test_source_types(self):
         sources = load_merged_sources(DEFAULTS_DIR)
-        types = set(s["type"] for s in sources)
+        types = set(source["type"] for source in sources)
         self.assertIn("rss", types)
         self.assertIn("twitter", types)
         self.assertIn("github", types)
         self.assertIn("reddit", types)
 
     def test_user_overlay_merges(self):
-        """User overlay should override matching IDs and add new ones."""
         with tempfile.TemporaryDirectory() as tmpdir:
             overlay = {
                 "sources": [
@@ -57,15 +57,14 @@ class TestLoadSources(unittest.TestCase):
                 ]
             }
             overlay_path = Path(tmpdir) / "tech-news-digest-sources.json"
-            with open(overlay_path, "w") as f:
-                json.dump(overlay, f)
+            with open(overlay_path, "w") as handle:
+                json.dump(overlay, handle)
 
             sources = load_merged_sources(DEFAULTS_DIR, Path(tmpdir))
-            ids = [s["id"] for s in sources]
+            ids = [source["id"] for source in sources]
             self.assertIn("test-new-source", ids)
 
     def test_user_overlay_disables(self):
-        """User overlay with enabled=false should disable a default source."""
         defaults = load_merged_sources(DEFAULTS_DIR)
         first_id = defaults[0]["id"]
 
@@ -76,16 +75,15 @@ class TestLoadSources(unittest.TestCase):
                 ]
             }
             overlay_path = Path(tmpdir) / "tech-news-digest-sources.json"
-            with open(overlay_path, "w") as f:
-                json.dump(overlay, f)
+            with open(overlay_path, "w") as handle:
+                json.dump(overlay, handle)
 
             sources = load_merged_sources(DEFAULTS_DIR, Path(tmpdir))
-            matched = [s for s in sources if s["id"] == first_id]
+            matched = [source for source in sources if source["id"] == first_id]
             self.assertEqual(len(matched), 1)
             self.assertFalse(matched[0]["enabled"])
 
     def test_no_overlay_dir(self):
-        """Should work fine with no user config dir."""
         sources = load_merged_sources(DEFAULTS_DIR, None)
         self.assertGreater(len(sources), 100)
 
@@ -97,23 +95,21 @@ class TestLoadTopics(unittest.TestCase):
 
     def test_topics_have_required_fields(self):
         topics = load_merged_topics(DEFAULTS_DIR)
-        for t in topics:
-            self.assertIn("id", t, f"Topic missing id: {t}")
-            self.assertIn("label", t, f"Topic missing label: {t}")
+        for topic in topics:
+            self.assertIn("id", topic, f"Topic missing id: {topic}")
+            self.assertIn("label", topic, f"Topic missing label: {topic}")
 
     def test_topic_ids(self):
         topics = load_merged_topics(DEFAULTS_DIR)
-        ids = [t["id"] for t in topics]
+        ids = [topic["id"] for topic in topics]
         self.assertIn("llm", ids)
         self.assertIn("crypto", ids)
 
 
 class TestSourceCounts(unittest.TestCase):
-    """Verify source counts match expectations."""
-
     def test_total_sources(self):
         sources = load_merged_sources(DEFAULTS_DIR)
-        enabled = [s for s in sources if s.get("enabled", True)]
+        enabled = [source for source in sources if source.get("enabled", True)]
         self.assertGreaterEqual(len(enabled), 130)
 
     def test_twitter_count(self):
@@ -122,7 +118,7 @@ class TestSourceCounts(unittest.TestCase):
 
     def test_rss_count(self):
         counts = get_source_counts()
-        self.assertEqual(counts["rss"], 78)  # 62 original + 16 YouTube RSS
+        self.assertEqual(counts["rss"], 78)
 
     def test_github_count(self):
         counts = get_source_counts()
@@ -131,6 +127,21 @@ class TestSourceCounts(unittest.TestCase):
     def test_reddit_count(self):
         counts = get_source_counts()
         self.assertEqual(counts["reddit"], 13)
+
+
+class TestValidateConfigCli(unittest.TestCase):
+    def test_validate_config_works_from_arbitrary_cwd(self):
+        script = SCRIPTS_DIR / "validate-config.py"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [sys.executable, str(script)],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("All validations passed", result.stdout + result.stderr)
 
 
 class TestReadmeCounts(unittest.TestCase):
@@ -145,14 +156,8 @@ class TestReadmeCounts(unittest.TestCase):
             f"A quality-scored, deduplicated tech digest built from **{counts['total']} built-in sources** plus **4 web search topics**:",
             content,
         )
-        self.assertIn(
-            f"| 📡 RSS | {counts['rss']} feeds |",
-            content,
-        )
-        self.assertIn(
-            f"| 🐙 GitHub | {counts['github']} repos |",
-            content,
-        )
+        self.assertIn(f"| 📡 RSS | {counts['rss']} feeds |", content)
+        self.assertIn(f"| 🐙 GitHub | {counts['github']} repos |", content)
         self.assertIn(
             f"`config/defaults/sources.json` — {counts['total']} built-in sources ({counts['rss']} RSS, {counts['twitter']} Twitter, {counts['github']} GitHub, {counts['reddit']} Reddit)",
             content,
@@ -169,14 +174,8 @@ class TestReadmeCounts(unittest.TestCase):
             f"基于 **{counts['total']} 个内置数据源** + **4 个 Web 搜索主题** 的质量评分、去重科技日报：",
             content,
         )
-        self.assertIn(
-            f"| 📡 RSS | {counts['rss']} 个订阅源 |",
-            content,
-        )
-        self.assertIn(
-            f"| 🐙 GitHub | {counts['github']} 个仓库 |",
-            content,
-        )
+        self.assertIn(f"| 📡 RSS | {counts['rss']} 个订阅源 |", content)
+        self.assertIn(f"| 🐙 GitHub | {counts['github']} 个仓库 |", content)
         self.assertIn(
             f"`config/defaults/sources.json` — {counts['total']} 个内置数据源（{counts['rss']} RSS、{counts['twitter']} Twitter、{counts['github']} GitHub、{counts['reddit']} Reddit）",
             content,

@@ -13,14 +13,15 @@ Usage:
       --defaults <SKILL_DIR>/config/defaults \
       --config <WORKSPACE>/config \
       --hours 48 --freshness pd \
-      --archive-dir <WORKSPACE>/archive/tech-news-digest/ \
-      --output /tmp/td-merged.json \
+      --archive-dir <SKILL_DIR>/generated/archive \
+      --output <SKILL_DIR>/generated/runtime/daily-YYYY-MM-DD.merged.json \
       --verbose
 """
 
 import json
 import sys
 import os
+import shutil
 import subprocess
 import time
 import argparse
@@ -28,6 +29,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, Any
+from runtime_paths import make_run_dir, runtime_file
 
 SCRIPTS_DIR = Path(__file__).parent
 DEFAULT_TIMEOUT = 180  # per-step timeout in seconds
@@ -115,6 +117,13 @@ def run_step(
         }
 
 
+def cleanup_run_dir(path: str, logger: logging.Logger) -> None:
+    if not path or not os.path.isdir(path):
+        return
+    shutil.rmtree(path, ignore_errors=True)
+    logger.info(f"🧹 Removed ephemeral run directory: {path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run the full tech-news-digest data pipeline in one shot.",
@@ -127,7 +136,7 @@ def main() -> int:
     parser.add_argument("--hours", type=int, default=48, help="Time window in hours")
     parser.add_argument("--freshness", type=str, default="pd", help="Web search freshness (pd/pw/pm)")
     parser.add_argument("--archive-dir", type=Path, default=None, help="Archive dir for dedup penalty")
-    parser.add_argument("--output", "-o", type=Path, default=Path("/tmp/td-merged.json"), help="Final merged output")
+    parser.add_argument("--output", "-o", type=Path, default=runtime_file("td-merged.json"), help="Final merged output")
     parser.add_argument("--step-timeout", type=int, default=DEFAULT_TIMEOUT, help="Per-step timeout (seconds)")
     parser.add_argument("--twitter-backend", choices=["official", "twitterapiio", "auto"], default=None, help="Twitter API backend to use")
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -152,12 +161,12 @@ def main() -> int:
         logger.info(f"🎯 --only {args.only} → running: {all_step_keys - skip_steps}")
 
     # Intermediate output paths
-    import tempfile
     if args.reuse_dir:
         _run_dir = str(args.reuse_dir)
         os.makedirs(_run_dir, exist_ok=True)
     else:
-        _run_dir = tempfile.mkdtemp(prefix="td-pipeline-")
+        _run_dir = str(make_run_dir("td-pipeline"))
+    cleanup_ephemeral_dir = not args.debug and not args.reuse_dir
     tmp_rss = Path(_run_dir) / "rss.json"
     tmp_twitter = Path(_run_dir) / "twitter.json"
     tmp_github = Path(_run_dir) / "github.json"
@@ -234,14 +243,13 @@ def main() -> int:
             merge_args += [flag, str(path)]
     if args.archive_dir:
         merge_args += ["--archive-dir", str(args.archive_dir)]
-    merge_args += ["--output", str(args.output)]
 
     merge_result = run_step("Merge", "merge-sources.py", merge_args, args.output, timeout=60, force=False)
 
     # Phase 3: Enrich high-scoring articles with full text
     if merge_result["status"] == "ok" and args.enrich and "enrich" not in skip_steps:
         logger.info("📰 Enriching top articles with full text...")
-        enrich_args = ["--input", str(args.output), "--output", str(args.output)]
+        enrich_args = ["--input", str(args.output)]
         enrich_args += ["--verbose"] if args.verbose else []
         enrich_result = run_step("Enrich", "enrich-articles.py", enrich_args, args.output, timeout=120, force=False)
     else:
@@ -253,17 +261,17 @@ def main() -> int:
     for flag, path in [("--rss", tmp_rss), ("--twitter", tmp_twitter), ("--github", tmp_github), ("--reddit", tmp_reddit), ("--web", tmp_web)]:
         if path.exists():
             health_args += [flag, str(path)]
-    health_args += ["--output", str(health_output)]
-    health_args += ["--verbose"] if args.verbose else []
-    health_result = run_step("Health", "source-health.py", health_args, health_output, timeout=30, force=False)
-
+    health_result = {"name": "Health", "status": "skipped", "elapsed_s": 0, "count": 0, "stderr_tail": []}
     health_summary = None
-    if health_result["status"] == "ok" and health_output.exists():
-        try:
-            with open(health_output) as f:
-                health_summary = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            health_summary = None
+    if health_args:
+        health_args += ["--verbose"] if args.verbose else []
+        health_result = run_step("Health", "source-health.py", health_args, health_output, timeout=30, force=False)
+        if health_result["status"] == "ok" and health_output.exists():
+            try:
+                with open(health_output) as f:
+                    health_summary = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                health_summary = None
 
     total_elapsed = time.time() - t_start
 
@@ -278,6 +286,8 @@ def main() -> int:
 
     if merge_result["status"] != "ok":
         logger.error(f"❌ Merge failed: {merge_result['stderr_tail']}")
+        if cleanup_ephemeral_dir:
+            cleanup_run_dir(_run_dir, logger)
         return 1
 
     # Write pipeline metadata alongside output for agent consumption
@@ -310,14 +320,8 @@ def main() -> int:
         with open(meta_path, "w") as f:
             json.dump(meta, f, indent=2)
 
-    if not args.reuse_dir:
-        import shutil
-        try:
-            shutil.rmtree(_run_dir)
-            logger.debug(f"Cleaned up {_run_dir}")
-        except Exception:
-            pass
-
+    if cleanup_ephemeral_dir:
+        cleanup_run_dir(_run_dir, logger)
     logger.info(f"✅ Done → {args.output}")
     return 0
 

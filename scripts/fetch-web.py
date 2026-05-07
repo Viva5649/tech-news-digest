@@ -27,6 +27,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from urllib.parse import urlencode
+from runtime_paths import runtime_file
 
 TIMEOUT = 30
 MAX_RESULTS_PER_QUERY = 5
@@ -36,7 +37,7 @@ RETRY_DELAY = 2.0
 # Brave Search API
 BRAVE_API_BASE = "https://api.search.brave.com/res/v1/web/search"
 TAVILY_API_BASE = "https://api.tavily.com/search"
-BRAVE_RATE_LIMIT_CACHE = "/tmp/tech-news-digest-brave-rate-limit.json"
+BRAVE_RATE_LIMIT_CACHE = str(runtime_file("tech-news-digest-brave-rate-limit.json"))
 
 
 def setup_logging(verbose: bool) -> logging.Logger:

@@ -7,7 +7,7 @@ Professional PDF output with Chinese typography, emoji icons, and A4 layout.
 Generate PDF from the markdown report using `generate-pdf.py`:
 
 ```bash
-python3 scripts/generate-pdf.py --input /tmp/td-report.md --output /tmp/td-digest.pdf
+python3 scripts/generate-pdf.py --input <SKILL_DIR>/generated/archive/<MODE>-<DATE>.md --output <SKILL_DIR>/generated/runtime/<MODE>-<DATE>.digest.pdf
 ```
 
 ## Prerequisites
@@ -18,7 +18,7 @@ python3 scripts/generate-pdf.py --input /tmp/td-report.md --output /tmp/td-diges
 ## Workflow
 
 1. Generate the digest in **markdown format** first (same as Discord template output)
-2. Save the markdown to a temp file (e.g., `/tmp/td-report.md`)
+2. Save the markdown to a skill-local report file (e.g., `<SKILL_DIR>/generated/archive/<MODE>-<DATE>.md`)
 3. Run `generate-pdf.py` to convert to PDF
 4. Optionally attach the PDF to Discord or email
 
@@ -64,11 +64,11 @@ The PDF generator accepts the same markdown format as the Discord template:
 
 ```bash
 # Generate PDF
-python3 scripts/generate-pdf.py -i /tmp/td-report.md -o /tmp/td-digest.pdf
+python3 scripts/generate-pdf.py -i <SKILL_DIR>/generated/archive/<MODE>-<DATE>.md -o <SKILL_DIR>/generated/runtime/<MODE>-<DATE>.digest.pdf
 
 # Attach to Discord
 # (use message tool with filePath parameter)
 
 # Attach to email
-mail -a /tmp/td-digest.pdf -s "Tech Digest" recipient@example.com < /dev/null
+mail -a <SKILL_DIR>/generated/runtime/<MODE>-<DATE>.digest.pdf -s "Tech Digest" recipient@example.com < /dev/null
 ```

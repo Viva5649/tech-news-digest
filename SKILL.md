@@ -8,8 +8,11 @@ metadata:
   openclaw:
     requires:
       bins: ["python3"]
-    optionalBins: ["mail", "msmtp", "gog", "gh", "openssl", "weasyprint"]
+    optionalBins: ["gh", "openssl", "weasyprint"]
 env:
+  - name: SMTP_SENDER_AUTH_CODE
+    required: false
+    description: 163 Mail authorization code used by the send-email skill for digest notifications
   - name: TWITTER_API_BACKEND
     required: false
     description: "Twitter API backend: 'official', 'twitterapiio', or 'auto' (default: auto)"
@@ -45,19 +48,16 @@ env:
     description: Path to GitHub App private key PEM file
 tools:
   - python3: Required. Runs data collection and merge scripts.
-  - mail: Optional. msmtp-based mail command for email delivery (preferred).
-  - gog: Optional. Gmail CLI for email delivery (fallback if mail not available).
+  - send-email skill: Required for markdown email notifications after report generation.
 files:
   read:
     - config/defaults/: Default source and topic configurations
     - references/: Prompt templates and output templates
     - scripts/: Python pipeline scripts
-    - <workspace>/archive/tech-news-digest/: Previous digests for dedup
+    - generated/archive/: Previous digests for dedup
   write:
-    - /tmp/td-*.json: Temporary pipeline intermediate outputs
-    - /tmp/td-email.html: Temporary email HTML body
-    - /tmp/td-digest.pdf: Generated PDF digest
-    - <workspace>/archive/tech-news-digest/: Saved digest archives
+    - generated/runtime/: Temporary pipeline outputs, caches, and per-report artifacts
+    - generated/archive/: Saved digest archives
 ---
 
 # Tech News Digest
@@ -81,6 +81,7 @@ Automated tech news digest system with unified data source model, quality scorin
    - `BRAVE_API_KEYS` - Brave Search API keys, comma-separated for rotation (optional)
    - `BRAVE_API_KEY` - Single Brave key fallback (optional)
    - `GITHUB_TOKEN` - GitHub personal access token (optional, improves rate limits)
+   - `SMTP_SENDER_AUTH_CODE` - 163 Mail authorization code for send-email notifications
 
 3. **Generate Digest**:
    ```bash
@@ -89,8 +90,8 @@ Automated tech news digest system with unified data source model, quality scorin
      --defaults config/defaults \
      --config workspace/config \
      --hours 48 --freshness pd \
-     --archive-dir workspace/archive/tech-news-digest/ \
-     --output /tmp/td-merged.json --verbose --force
+     --archive-dir generated/archive \
+     --output generated/runtime/daily-YYYY-MM-DD.merged.json --verbose --force
    ```
 
 4. **Use Templates**: Apply Discord, email, or PDF templates to merged output
@@ -155,8 +156,8 @@ Automated tech news digest system with unified data source model, quality scorin
 python3 scripts/run-pipeline.py \
   --defaults config/defaults [--config CONFIG_DIR] \
   --hours 48 --freshness pd \
-  --archive-dir workspace/archive/tech-news-digest/ \
-  --output /tmp/td-merged.json --verbose --force
+  --archive-dir generated/archive \
+  --output generated/runtime/daily-YYYY-MM-DD.merged.json --verbose --force
 ```
 - **Features**: Runs all 6 fetch steps in parallel, then merges + deduplicates + scores
 - **Output**: Final merged JSON ready for report generation (~30s total)
@@ -349,9 +350,11 @@ python3 scripts/fetch-twitter.py --hours 1 --verbose
 ```
 
 ### Archive Management
-- Digests automatically archived to `<workspace>/archive/tech-news-digest/`
-- Previous digest titles used for duplicate detection
-- Old archives cleaned automatically (90+ days)
+- Digests are archived to `generated/archive/`
+- Previous digest titles are used for duplicate detection
+- Weekly reports keep a rolling 30 day window via `scripts/prune-generated.py`
+- Expired weekly reports delete only their own per-report artifacts under `generated/`
+- Shared reusable runtime files such as caches are kept
 
 ### Error Handling
 - **Network Failures**: Retry with exponential backoff
@@ -393,7 +396,7 @@ export GH_APP_KEY_FILE="/path/to/key.pem"
 
 ### OpenClaw Cron (Recommended)
 
-The cron prompt should **NOT** hardcode the pipeline steps. Instead, reference `references/digest-prompt.md` and only pass configuration parameters. This ensures the pipeline logic stays in the skill repo and is consistent across all installations.
+The cron prompt should **NOT** hardcode the pipeline steps. Instead, reference `references/digest-prompt.md` and only pass configuration parameters. This keeps the pipeline logic in the skill repo and makes the workspace-local runtime paths explicit.
 
 #### Daily Digest Cron Prompt
 ```
@@ -408,11 +411,15 @@ Replace placeholders with:
 - ENRICH = true
 - BLOG_PICKS_COUNT = 3
 - EXTRA_SECTIONS = (none)
-- SUBJECT = Daily Tech Digest - YYYY-MM-DD
+- EMAIL_SUBJECT = YYYYMMDD_科技资讯日报, derived from DATE by removing hyphens
 - WORKSPACE = <your workspace path>
 - SKILL_DIR = <your skill install path>
 - DISCORD_CHANNEL_ID = <your channel id>
-- EMAIL = (optional)
+- EMAIL = chenliang535649@163.com
+- EMAIL_FROM = mrnobody212377@163.com
+- EMAIL_SMTP_SERVER = smtp.163.com
+- EMAIL_SMTP_PORT = 465
+- SEND_EMAIL_SCRIPT = /Users/viva/.agents/skills/send-email/scripts/send_email.py
 - LANGUAGE = English
 - TEMPLATE = discord
 
@@ -432,11 +439,15 @@ Replace placeholders with:
 - ENRICH = true
 - BLOG_PICKS_COUNT = 3-5
 - EXTRA_SECTIONS = 📊 Weekly Trend Summary (2-3 sentences summarizing macro trends)
-- SUBJECT = Weekly Tech Digest - YYYY-MM-DD
+- EMAIL_SUBJECT = YYYYMMDD_科技资讯周报, derived from DATE by removing hyphens
 - WORKSPACE = <your workspace path>
 - SKILL_DIR = <your skill install path>
 - DISCORD_CHANNEL_ID = <your channel id>
-- EMAIL = (optional)
+- EMAIL = chenliang535649@163.com
+- EMAIL_FROM = mrnobody212377@163.com
+- EMAIL_SMTP_SERVER = smtp.163.com
+- EMAIL_SMTP_PORT = 465
+- SEND_EMAIL_SCRIPT = /Users/viva/.agents/skills/send-email/scripts/send_email.py
 - LANGUAGE = English
 - TEMPLATE = discord
 
@@ -484,7 +495,7 @@ The Python scripts make outbound requests to:
 No data is sent to any other endpoints. All API keys are read from environment variables declared in the skill metadata.
 
 ### Shell Safety
-Email delivery uses `send-email.py` which constructs proper MIME multipart messages with HTML body + optional PDF attachment. Subject formats are hardcoded (`Daily Tech Digest - YYYY-MM-DD`). PDF generation uses `generate-pdf.py` via `weasyprint`. The prompt template explicitly prohibits interpolating untrusted content (article titles, tweet text, etc.) into shell arguments. Email addresses and subjects must be static placeholder values only.
+Email notification uses the global `send-email` skill script with `--file` pointing to the final archived markdown report. The subject format is derived only from the report date and mode: daily reports use `YYYYMMDD_科技资讯日报`, and weekly reports use `YYYYMMDD_科技资讯周报`. SMTP credentials are read from `SMTP_SENDER_AUTH_CODE` or the execution environment and must not be written to repo files. The prompt template explicitly prohibits interpolating untrusted content (article titles, tweet text, etc.) into shell arguments.
 
 ### File Access
 Scripts read from `config/` and write to `workspace/archive/`. No files outside the workspace are accessed.
@@ -513,7 +524,7 @@ The digest prompt instructs agents to run Python scripts via shell commands. All
   1. `openssl dgst -sha256 -sign` for JWT signing (only if `GH_APP_*` env vars are set — signs a self-constructed JWT payload, no user content involved)
   2. `gh auth token` CLI fallback (only if `gh` is installed — reads from gh's own credential store)
 
-No user-supplied or fetched content is ever interpolated into subprocess arguments. Email delivery uses `send-email.py` which builds MIME messages programmatically — no shell interpolation. PDF generation uses `generate-pdf.py` via `weasyprint`. Email subjects are static format strings only — never constructed from fetched data.
+No user-supplied or fetched content is ever interpolated into subprocess arguments. Email notification uses the global `send-email` skill script with the final markdown report passed through `--file`. Email subjects are derived only from the report date and never from fetched content. PDF generation remains available via `generate-pdf.py` and `weasyprint`, but it is not part of the default email notification path.
 
 ### Credential & File Access
 Scripts do **not** directly read `~/.config/`, `~/.ssh/`, or any credential files. All API tokens are read from environment variables declared in the skill metadata. The GitHub auth cascade is:
